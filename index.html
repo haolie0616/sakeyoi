@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>酒展獨立結帳系統 (樣品功能版)</title>
+    <script src="https://unpkg.com/html5-qrcode"></script>
+    <style>
+        body { font-family: "Helvetica Neue", Helvetica, Arial, sans-serif; margin: 0; padding: 0; display: flex; height: 100vh; background-color: #f4f4f9; color: #333; }
+        .left-panel { flex: 2; display: flex; flex-direction: column; padding: 20px; overflow-y: auto; border-right: 2px solid #e0e0e0; }
+        
+        .category-section { margin-bottom: 20px; }
+        .category-header {
+            background-color: #e0e0e0; padding: 12px 18px; font-size: 1.2rem; font-weight: bold; border-radius: 8px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 2px 4px rgba(0,0,0,0.05); transition: background-color 0.2s;
+        }
+        .category-header:active { background-color: #d5d5d5; }
+        .category-content { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 15px; padding-top: 15px; overflow: hidden; }
+        .category-content.hidden { display: none; }
+        .toggle-icon { transition: transform 0.3s; font-size: 0.9rem; color: #555; }
+        .toggle-icon.open { transform: rotate(180deg); }
+
+        .product-btn { background-color: #ffffff; border: 2px solid #e0e0e0; border-radius: 12px; padding: 20px 10px; font-size: 1.1rem; font-weight: bold; cursor: pointer; transition: all 0.2s; box-shadow: 0 4px 6px rgba(0,0,0,0.05); display: flex; flex-direction: column; align-items: center; gap: 8px; }
+        .product-btn:active:not(:disabled) { transform: scale(0.95); }
+        .product-btn.low-stock { border-color: #ff9800; background-color: #fff3e0; }
+        .product-btn:disabled { background-color: #ffebee; border-color: #e57373; color: #c62828; cursor: not-allowed; }
+        .badge { font-size: 0.8rem; padding: 3px 8px; border-radius: 20px; background-color: #e0e0e0; color: #666; }
+        .low-stock .badge { background-color: #ff9800; color: white; }
+        
+        .right-panel { flex: 1.2; background-color: #ffffff; padding: 20px; display: flex; flex-direction: column; box-shadow: -2px 0 10px rgba(0,0,0,0.05); overflow-y: auto; }
+        .section-title { margin-top: 15px; margin-bottom: 10px; padding-bottom: 5px; border-bottom: 1px solid #ccc; font-size: 1.1rem; color: #555; font-weight: bold; }
+        
+        .cart-items { max-height: 200px; min-height: 80px; flex-shrink: 0; overflow-y: auto; border: 1px solid #eee; padding: 10px; margin-bottom: 10px; background-color: #fafafa; }
+        .cart-item { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid #f5f5f5; }
+        
+        .form-group { margin-bottom: 12px; display: flex; flex-direction: column; gap: 5px; }
+        .form-group input { padding: 10px; font-size: 1rem; border: 1px solid #ccc; border-radius: 6px; }
+        .radio-group { display: flex; gap: 10px; }
+        .radio-group label { flex: 1; border: 1px solid #ccc; padding: 10px; text-align: center; border-radius: 6px; cursor: pointer; background-color: #fafafa; }
+        .radio-group input { display: none; }
+        .radio-group input:checked + span { font-weight: bold; color: #4285f4; }
+        .radio-group label:has(input:checked) { border-color: #4285f4; background-color: #e8f0fe; }
+        .hidden { display: none !important; }
+        
+        .summary-box { background: #f8f9fa; padding: 15px; border-radius: 8px; margin: 10px 0; flex-shrink: 0; }
+        .summary-row { display: flex; justify-content: space-between; margin-bottom: 5px; font-size: 1.1rem; }
+        .summary-row.total { font-size: 1.6rem; font-weight: bold; color: #d32f2f; border-top: 2px solid #ccc; padding-top: 10px; margin-top: 10px; }
+        .discount-input { width: 80px; text-align: right; padding: 5px; font-size: 1rem; border: 1px solid #ccc; border-radius: 4px; }
+        
+        /* 樣品勾選區塊 */
+        .sample-box { background-color: #fff3cd; border: 1px solid #ffeeba; border-radius: 8px; padding: 12px; margin-bottom: 15px; flex-shrink: 0; }
+        .sample-label { color: #856404; font-weight: bold; font-size: 1rem; cursor: pointer; display: flex; align-items: center; gap: 10px; margin: 0; }
+        
+        .scan-container-box { border: 2px dashed #0288d1; padding: 10px; border-radius: 8px; margin-top: 5px; background: #e1f5fe; }
+        .checkout-btn { background-color: #2e7d32; color: white; border: none; padding: 15px; font-size: 1.3rem; border-radius: 8px; cursor: pointer; font-weight: bold; width: 100%; margin-top: 15px; flex-shrink: 0;}
+        .checkout-btn:hover { background-color: #1b5e20; }
+        .checkout-btn:disabled { background-color: #9e9e9e; cursor: not-allowed; }
+        
+        .reset-btn { background:#ff5252; color:white; border:none; padding:10px; border-radius:6px; cursor:pointer; font-weight: bold; transition: 0.2s; }
+        .reset-btn:hover { background:#d32f2f; }
+        
+        .loading-overlay { position: fixed; top:0; left:0; right:0; bottom:0; background: rgba(255,255,255,0.9); display: flex; justify-content: center; align-items: center; font-size: 1.5rem; font-weight: bold; z-index: 999; }
+    </style>
+</head>
+<body>
+    <div id="loading" class="loading-overlay">正在從雲端試算表即時連線庫存...</div>
+
+    <div class="left-panel">
+        <h2>酒展即時庫存與點選區</h2>
+        <div id="products-container"></div>
+    </div>
+
+    <div class="right-panel">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+            <h2>結帳明細</h2>
+            <button class="reset-btn" onclick="resetAll()">🗑️ 一鍵清除/刷新所有資訊</button>
+        </div>
+        
+        <div class="cart-items" id="cart-list"></div>
+
+        <div class="summary-box">
+            <div class="summary-row"><span>小計:</span><span>$<span id="subtotal">0</span></span></div>
+            <div class="summary-row" style="align-items: center; color: #1976d2;">
+                <span>折扣/折讓 (-):</span>
+                <span>$ <input type="number" id="discount" class="discount-input" value="0" min="0" onchange="calculateTotal()" onkeyup="calculateTotal()"></span>
+            </div>
+            <div class="summary-row total"><span>總應收:</span><span>$<span id="final-total">0</span></span></div>
+        </div>
+
+        <!-- 樣品勾選區塊 -->
+        <div class="sample-box">
+            <label class="sample-label">
+                <input type="checkbox" id="is-sample" onchange="toggleSampleMode()" style="width: 20px; height: 20px;">
+                🎁 記為樣品 (總計 $0，不需收款，自動扣除現場庫存)
+            </label>
+        </div>
+
+        <!-- 將收款與取貨包裝在一個 div 內，方便鎖定 -->
+        <div id="payment-pickup-section" style="transition: opacity 0.3s;">
+            <div class="section-title">1. 收款方式</div>
+            <div class="radio-group">
+                <label><input type="radio" name="payment" value="現金" checked><span>現金</span></label>
+                <label><input type="radio" name="payment" value="TapPay"><span>TapPay</span></label>
+                <label><input type="radio" name="payment" value="LinePay"><span>LinePay</span></label>
+            </div>
+
+            <div class="section-title">2. 取貨方式</div>
+            <div class="radio-group">
+                <label><input type="radio" name="pickup" value="現取" checked onclick="toggleDeliveryForm(false)"><span>現取</span></label>
+                <label><input type="radio" name="pickup" value="後取" onclick="toggleDeliveryForm(true)"><span>後取</span></label>
+                <label><input type="radio" name="pickup" value="宅配" onclick="toggleDeliveryForm(true)"><span>宅配</span></label>
+            </div>
+
+            <div id="delivery-form" class="hidden" style="margin-top: 15px; background: #f9f9f9; padding: 10px; border-radius: 8px;">
+                <div class="form-group"><input type="text" id="cust-name" placeholder="姓名 *"></div>
+                <div class="form-group"><input type="tel" id="cust-phone" placeholder="電話 *"></div>
+                <div class="form-group"><input type="text" id="cust-address" placeholder="地址 (宅配必填)"></div>
+            </div>
+
+            <div class="section-title">3. 發票載具</div>
+            <div class="form-group">
+                <input type="text" id="carrier-barcode" placeholder="載具條碼 (如 /ABC1234)">
+                <button type="button" style="background:#0288d1; color:white; border:none; padding:10px; border-radius:6px; margin-top:5px; cursor:pointer; font-weight:bold;" onclick="initCameraScanner()">📷 啟動 iPad 鏡頭掃描</button>
+                <div id="scanner-wrapper" class="scan-container-box hidden">
+                    <div id="reader" style="width: 100%;"></div>
+                    <button type="button" style="margin-top:5px; background:#666; color:white; border:none; padding:5px; border-radius:4px;" onclick="stopScanner()">關閉相機</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="section-title">4. 備註 (選填)</div>
+        <div class="form-group">
+            <input type="text" id="order-memo" placeholder="例如：統編 12345678、指定到貨時間等">
+        </div>
+
+        <button id="btn-checkout" class="checkout-btn" onclick="checkout()">確認結帳並送出</button>
+    </div>
+
+    <script>
+        // 🔴 請替換為你正式的 GAS Web App 網址
+        const GAS_API_URL = "https://script.google.com/macros/s/AKfycbxGNQP7ID6l1ZJxQ-o9FstIwXSSBmGcHjO-9r87XHBS3wYs_5KlbLjtcNgTaYO_zMqm/exec";
+
+        let products = [];
+        let cart = [];
+        let subtotal = 0;
+        let html5QrcodeScanner = null;
+
+        window.onload = function() { fetchProducts(); };
+
+        function fetchProducts() {
+            document.getElementById('loading').style.display = 'flex';
+            fetch(`${GAS_API_URL}?action=getProducts`)
+                .then(res => res.json())
+                .then(data => {
+                    products = data;
+                    document.getElementById('loading').style.display = 'none';
+                    renderProducts();
+                })
+                .catch(err => alert("讀取雲端庫存失敗，請檢查網址：" + err));
+        }
+
+        function renderProducts() {
+            const container = document.getElementById('products-container');
+            container.innerHTML = '';
+            
+            const categories = [...new Set(products.map(p => p.category))];
+
+            categories.forEach(cat => {
+                const section = document.createElement('div');
+                section.className = 'category-section';
+
+                const header = document.createElement('div');
+                header.className = 'category-header';
+                header.innerHTML = `<span>${cat}</span><span class="toggle-icon open">▼</span>`;
+
+                const content = document.createElement('div');
+                content.className = 'category-content';
+
+                header.onclick = () => {
+                    content.classList.toggle('hidden');
+                    header.querySelector('.toggle-icon').classList.toggle('open');
+                };
+
+                const catProducts = products.filter(p => p.category === cat);
+                catProducts.forEach(p => {
+                    const btn = document.createElement('button');
+                    btn.className = 'product-btn';
+                    if (p.stock <= 0) {
+                        btn.disabled = true;
+                        btn.innerHTML = `<span>${p.name}</span><span style="color:#d32f2f;">$${p.price}</span><span>⚠️ 已售完</span>`;
+                    } else {
+                        if (p.stock <= 5) btn.className += ' low-stock';
+                        btn.onclick = () => addToCart(p.id);
+                        btn.innerHTML = `<span>${p.name}</span><span style="color:#666;">$${p.price}</span><span class="badge">庫存: ${p.stock}</span>`;
+                    }
+                    content.appendChild(btn);
+                });
+
+                section.appendChild(header);
+                section.appendChild(content);
+                container.appendChild(section);
+            });
+        }
+
+        function addToCart(productId) {
+            let prod = products.find(p => p.id === productId);
+            if (prod && prod.stock > 0) {
+                prod.stock--;
+                cart.push({ id: prod.id, name: prod.name, price: prod.price });
+                subtotal += prod.price;
+                renderProducts();
+                updateCartUI();
+            }
+        }
+
+        function toggleSampleMode() {
+            const isSample = document.getElementById('is-sample').checked;
+            const section = document.getElementById('payment-pickup-section');
+            
+            // 鎖定或解鎖收款、取貨與載具區塊
+            if (isSample) {
+                section.style.opacity = '0.3';
+                section.style.pointerEvents = 'none';
+            } else {
+                section.style.opacity = '1';
+                section.style.pointerEvents = 'auto';
+            }
+            
+            // 重新計算總計
+            calculateTotal();
+        }
+
+        function resetAll() {
+            fetchProducts();
+            cart = [];
+            subtotal = 0;
+            
+            document.querySelector('input[name="payment"][value="現金"]').checked = true;
+            document.querySelector('input[name="pickup"][value="現取"]').checked = true;
+            toggleDeliveryForm(false);
+
+            // 解除樣品模式
+            document.getElementById('is-sample').checked = false;
+            toggleSampleMode();
+
+            document.getElementById('discount').value = 0;
+            document.getElementById('cust-name').value = '';
+            document.getElementById('cust-phone').value = '';
+            document.getElementById('cust-address').value = '';
+            document.getElementById('carrier-barcode').value = '';
+            document.getElementById('order-memo').value = '';
+
+            updateCartUI();
+        }
+
+        function updateCartUI() {
+            const cartList = document.getElementById('cart-list');
+            cartList.innerHTML = '';
+            cart.forEach(item => {
+                const div = document.createElement('div');
+                div.className = 'cart-item';
+                div.innerHTML = `<span>${item.name}</span><span>$${item.price}</span>`;
+                cartList.appendChild(div);
+            });
+            document.getElementById('subtotal').innerText = subtotal;
+            calculateTotal();
+        }
+
+        function calculateTotal() {
+            let discount = parseInt(document.getElementById('discount').value) || 0;
+            let isSample = document.getElementById('is-sample').checked;
+            
+            let finalAmount = subtotal - discount;
+            if (finalAmount < 0) finalAmount = 0;
+            
+            // 若為樣品，總應收強制歸零
+            if (isSample) {
+                finalAmount = 0;
+            }
+            
+            document.getElementById('final-total').innerText = finalAmount;
+            return { discount, finalAmount };
+        }
+
+        function toggleDeliveryForm(show) { document.getElementById('delivery-form').classList.toggle('hidden', !show); }
+
+        function initCameraScanner() {
+            document.getElementById('scanner-wrapper').classList.remove('hidden');
+            if(!html5QrcodeScanner) html5QrcodeScanner = new Html5Qrcode("reader");
+            
+            html5QrcodeScanner.start(
+                { facingMode: "environment" },
+                { fps: 15, qrbox: function(width, height) { return { width: width * 0.8, height: height * 0.3 }; }, aspectRatio: 1.777778 },
+                (decodedText) => {
+                    document.getElementById('carrier-barcode').value = decodedText;
+                    stopScanner();
+                    alert("載具條碼讀取成功：" + decodedText);
+                },
+                (errorMessage) => {}
+            ).catch(err => alert("相機啟動失敗：" + err));
+        }
+
+        function stopScanner() {
+            if (html5QrcodeScanner) {
+                html5QrcodeScanner.stop().then(() => { document.getElementById('scanner-wrapper').className += ' hidden'; })
+                .catch(err => console.log("停止相機失敗", err));
+            }
+        }
+
+        function checkout() {
+            if (cart.length === 0) return alert('購物車是空的！');
+
+            const isSample = document.getElementById('is-sample').checked;
+            let payment, pickup, name, phone, address, barcode;
+            let memo = document.getElementById('order-memo').value.trim();
+
+            if (isSample) {
+                // 樣品模式：強行覆寫欄位，繞過必填檢查
+                payment = "樣品";
+                pickup = "現取 (樣品)"; // 後端只要不是 "宅配"，就會自動扣減庫存
+                name = "";
+                phone = "";
+                address = "";
+                barcode = "";
+            } else {
+                payment = document.querySelector('input[name="payment"]:checked').value;
+                pickup = document.querySelector('input[name="pickup"]:checked').value;
+                name = document.getElementById('cust-name').value.trim();
+                phone = document.getElementById('cust-phone').value.trim();
+                address = document.getElementById('cust-address').value.trim();
+                barcode = document.getElementById('carrier-barcode').value.trim();
+
+                if ((pickup === "後取" || pickup === "宅配") && (!name || !phone)) return alert('姓名與電話為必填！');
+                if (pickup === "宅配" && !address) return alert('宅配必須填寫地址！');
+            }
+
+            const { discount, finalAmount } = calculateTotal();
+            
+            const cartSummary = [];
+            cart.forEach(item => {
+                let existing = cartSummary.find(i => i.name === item.name);
+                if (existing) existing.qty++;
+                else cartSummary.push({ name: item.name, qty: 1 });
+            });
+
+            const orderData = {
+                timestamp: new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' }),
+                itemsString: cartSummary.map(i => `${i.name} x${i.qty}`).join(', '),
+                cartItems: cartSummary,
+                subtotal: subtotal,
+                discount: discount,
+                totalAmount: finalAmount,
+                paymentMethod: payment,
+                pickupMethod: pickup,
+                customerName: name,
+                customerPhone: phone,
+                customerAddress: address,
+                carrierBarcode: barcode,
+                memo: memo
+            };
+
+            document.getElementById('btn-checkout').disabled = true;
+            document.getElementById('btn-checkout').innerText = "交易傳送中...";
+
+            fetch(GAS_API_URL, {
+                method: 'POST',
+                mode: 'no-cors',
+                body: JSON.stringify(orderData)
+            }).then(() => {
+                alert('結帳成功！');
+                resetAll();
+                document.getElementById('btn-checkout').disabled = false;
+                document.getElementById('btn-checkout').innerText = "確認結帳並送出";
+            }).catch(err => {
+                alert('傳送發生錯誤: ' + err);
+                document.getElementById('btn-checkout').disabled = false;
+            });
+        }
+    </script>
+</body>
+</html>
